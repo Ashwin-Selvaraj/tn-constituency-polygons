@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TN Constituencies Map</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+      }
+      #toolbar {
+        padding: 10px 12px;
+        border-bottom: 1px solid #ddd;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      #map {
+        height: calc(100vh - 52px);
+        width: 100%;
+      }
+      .hint {
+        color: #555;
+        font-size: 13px;
+      }
+      .field {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      input[type="number"],
+      input[type="text"] {
+        padding: 4px 6px;
+      }
+      button {
+        padding: 5px 8px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="toolbar">
+      <strong>TN Constituencies</strong>
+      <input id="fileInput" type="file" accept=".geojson,.json" />
+      <span class="field">
+        <label for="problemTitle">Title</label>
+        <input id="problemTitle" type="text" value="New problem" />
+      </span>
+      <span class="field">
+        <label for="latInput">Lat</label>
+        <input id="latInput" type="number" step="any" placeholder="11.00747" />
+      </span>
+      <span class="field">
+        <label for="lngInput">Lng</label>
+        <input id="lngInput" type="number" step="any" placeholder="76.95158" />
+      </span>
+      <button id="plotBtn" type="button">Plot Problem</button>
+      <button id="clearBtn" type="button">Clear Problems</button>
+      <span class="hint">Auto-loads <code>constituencies.geojson</code> if served from this folder.</span>
+      <span class="hint">Click map to auto-fill lat/lng, then plot.</span>
+    </div>
+    <div id="map"></div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script>
+      const map = L.map("map").setView([11.2, 78.2], 7);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 18,
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(map);
+
+      let geoLayer = null;
+      const problemsLayer = L.layerGroup().addTo(map);
+      const markerStyle = {
+        radius: 6,
+        color: "#b91c1c",
+        weight: 1,
+        fillColor: "#ef4444",
+        fillOpacity: 0.9,
+      };
+      const problemState = [];
+
+      function featureLabel(properties = {}) {
+        return (
+          properties.AC_NAME ||
+          properties.name ||
+          properties.constituency ||
+          "Unknown Constituency"
+        );
+      }
+
+      function renderGeoJSON(geojson) {
+        if (geoLayer) {
+          map.removeLayer(geoLayer);
+        }
+
+        geoLayer = L.geoJSON(geojson, {
+          style: {
+            color: "#2563eb",
+            weight: 1,
+            fillColor: "#60a5fa",
+            fillOpacity: 0.25,
+          },
+          onEachFeature: (feature, layer) => {
+            const p = feature.properties || {};
+            const name = featureLabel(p);
+            const acNo = p.AC_NO ? `<br/>AC No: ${p.AC_NO}` : "";
+            const district = p.DIST_NAME ? `<br/>District: ${p.DIST_NAME}` : "";
+            layer.bindPopup(`<b>${name}</b>${acNo}${district}`);
+          },
+        }).addTo(map);
+
+        const bounds = geoLayer.getBounds();
+        if (bounds.isValid()) {
+          map.fitBounds(bounds.pad(0.03));
+        }
+      }
+
+      function isValidCoord(lat, lng) {
+        return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+      }
+
+      function plotProblem(problem) {
+        const lat = Number(problem.lat);
+        const lng = Number(problem.lng);
+        if (!isValidCoord(lat, lng)) {
+          alert("Invalid coordinates. Lat must be [-90, 90], Lng must be [-180, 180].");
+          return;
+        }
+
+        const marker = L.circleMarker([lat, lng], markerStyle).addTo(problemsLayer);
+        const title = problem.title || "Problem";
+        marker.bindPopup(
+          `<b>${title}</b><br/>Lat: ${lat.toFixed(6)}<br/>Lng: ${lng.toFixed(6)}`,
+        );
+        problemState.push({ title, lat, lng });
+      }
+
+      function plotFromInputs() {
+        const title = document.getElementById("problemTitle").value.trim() || "Problem";
+        const lat = Number(document.getElementById("latInput").value);
+        const lng = Number(document.getElementById("lngInput").value);
+        plotProblem({ title, lat, lng });
+      }
+
+      function seedSampleProblems() {
+        // Demo points: replace with API data in production.
+        const sample = [{ title: "Water leakage", lat: 11.007474, lng: 76.951584 }];
+        sample.forEach(plotProblem);
+      }
+
+      async function tryAutoLoad() {
+        try {
+          const res = await fetch("./constituencies.geojson");
+          if (!res.ok) {
+            throw new Error("GeoJSON fetch failed");
+          }
+          const data = await res.json();
+          renderGeoJSON(data);
+        } catch (_err) {
+          // Ignore: user can upload file manually.
+        }
+      }
+
+      document.getElementById("fileInput").addEventListener("change", (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const data = JSON.parse(String(reader.result));
+            renderGeoJSON(data);
+          } catch (err) {
+            alert("Invalid GeoJSON file.");
+          }
+        };
+        reader.readAsText(file);
+      });
+
+      document.getElementById("plotBtn").addEventListener("click", plotFromInputs);
+      document.getElementById("clearBtn").addEventListener("click", () => {
+        problemsLayer.clearLayers();
+        problemState.length = 0;
+      });
+
+      map.on("click", (e) => {
+        const lat = e.latlng.lat.toFixed(6);
+        const lng = e.latlng.lng.toFixed(6);
+        document.getElementById("latInput").value = lat;
+        document.getElementById("lngInput").value = lng;
+      });
+
+      tryAutoLoad();
+      seedSampleProblems();
+    </script>
+  </body>
+</html>

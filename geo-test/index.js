@@ -10,8 +10,8 @@ const geojsonPath = path.join(__dirname, 'constituencies.geojson');
 const geojson = JSON.parse(fs.readFileSync(geojsonPath, 'utf8'));
 
 // Your test coordinates
-const lat = 11.189864660448045;
-const lng = 77.27047679555436;
+const lat = 9.508501673421842;
+const lng = 77.63091229339865;
 
 
 if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
